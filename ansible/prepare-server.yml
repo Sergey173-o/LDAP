@@ -1,0 +1,32 @@
+---
+# Настраивает лимиты до установки FreeIPA и Dogtag.
+- name: Создать каталоги настройки лимитов
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - /etc/ipa
+    - /etc/systemd/system/pki-tomcatd@pki-tomcat.service.d
+
+- name: Установить лимит запуска служб FreeIPA
+  ansible.builtin.copy:
+    dest: /etc/ipa/installer.conf
+    mode: '0644'
+    content: |
+      [global]
+      startup_timeout=1800
+
+- name: Установить лимит запуска Dogtag
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/pki-tomcatd@pki-tomcat.service.d/99-lab-timeout.conf
+    mode: '0644'
+    content: |
+      [Service]
+      TimeoutStartSec=1800
+
+- name: Перечитать настройки systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+# Версия 2 | 2026-11-21 | Лимиты FreeIPA и systemd по 1800 секунд.

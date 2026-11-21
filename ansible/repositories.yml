@@ -1,0 +1,23 @@
+---
+# Обходит metalink при доступе к BaseOS и AppStream.
+- name: Найти файлы репозиториев
+  ansible.builtin.find:
+    paths: /etc/yum.repos.d
+    patterns: "*.repo"
+  register: ipa_repo_files
+
+- name: Использовать прямой репозиторий BaseOS
+  ansible.builtin.replace:
+    path: "{{ item.path }}"
+    regexp: '^metalink=.*repo=centos-baseos-.*$'
+    replace: 'baseurl=https://mirror.stream.centos.org/9-stream/BaseOS/$basearch/os/'
+  loop: "{{ ipa_repo_files.files }}"
+
+- name: Использовать прямой репозиторий AppStream
+  ansible.builtin.replace:
+    path: "{{ item.path }}"
+    regexp: '^metalink=.*repo=centos-appstream-.*$'
+    replace: 'baseurl=https://mirror.stream.centos.org/9-stream/AppStream/$basearch/os/'
+  loop: "{{ ipa_repo_files.files }}"
+
+# Версия 2 | 2026-11-21 | Прямые репозитории на сервере и клиентах.

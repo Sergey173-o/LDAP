@@ -1,0 +1,39 @@
+---
+- name: Настроить прямые репозитории CentOS
+  ansible.builtin.import_tasks: repositories.yml
+
+# Настраивает имена и синхронизацию времени в изолированной лаборатории.
+- name: Установить таблицу имён лабораторных ВМ
+  ansible.builtin.copy:
+    dest: /etc/hosts
+    mode: '0644'
+    content: |
+      127.0.0.1 localhost localhost.localdomain
+      ::1 localhost localhost.localdomain ip6-localhost ip6-loopback
+      192.168.57.10 ipa.otus.lan ipa
+      192.168.57.11 client1.otus.lan client1
+      192.168.57.12 client2.otus.lan client2
+
+- name: Установить chrony
+  ansible.builtin.dnf:
+    name: chrony
+    state: present
+
+- name: Запустить синхронизацию времени
+  ansible.builtin.systemd:
+    name: chronyd
+    enabled: true
+    state: started
+
+- name: Проверить FQDN
+  ansible.builtin.command: hostname -f
+  register: ipa_hostname
+  changed_when: false
+  failed_when: ipa_hostname.rc != 0 or ipa_hostname.stdout != ipa_node_fqdn
+
+- name: Проверить адрес лабораторного интерфейса
+  ansible.builtin.assert:
+    that: ipa_node_ip in ansible_facts.all_ipv4_addresses
+    fail_msg: На ВМ отсутствует адрес внутренней сети VirtualBox.
+
+# Версия 2 | 2026-11-21 | FQDN, таблица имён и chrony.

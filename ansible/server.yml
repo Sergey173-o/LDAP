@@ -1,0 +1,81 @@
+---
+# Развёртывает FreeIPA с CA и Kerberos без интегрированного DNS.
+- name: Установить сервер FreeIPA
+  hosts: all
+  become: true
+  vars:
+    ipa_admin_password: "{{ lookup('ansible.builtin.env', 'IPA_ADMIN_PASSWORD') }}"
+    ipa_ds_password: "{{ lookup('ansible.builtin.env', 'IPA_DS_PASSWORD') }}"
+  tasks:
+    - name: Подготовить лимиты сервера
+      ansible.builtin.import_tasks: prepare-server.yml
+
+    - name: Подготовить сеть и время
+      ansible.builtin.import_tasks: common.yml
+
+    - name: Проверить состояние настройки FreeIPA
+      ansible.builtin.stat:
+        path: /etc/ipa/default.conf
+      register: ipa_server_config
+
+    - name: Проверить существующую конфигурацию FreeIPA
+      ansible.builtin.command: ipactl status
+      changed_when: false
+      when: ipa_server_config.stat.exists
+
+    - name: Проверить наличие разных паролей для первичной установки
+      ansible.builtin.assert:
+        that:
+          - ipa_admin_password | length >= 8
+          - ipa_ds_password | length >= 8
+          - ipa_admin_password != ipa_ds_password
+      no_log: true
+      when: not ipa_server_config.stat.exists
+
+    - name: Установить серверные пакеты
+      ansible.builtin.dnf:
+        name:
+          - ipa-server
+          - openldap-clients
+        state: present
+
+    - name: Настроить сервер FreeIPA
+      ansible.builtin.command:
+        argv:
+          - ipa-server-install
+          - --unattended
+          - "--hostname={{ ipa_node_fqdn }}"
+          - "--ip-address={{ ipa_node_ip }}"
+          - --domain=otus.lan
+          - --realm=OTUS.LAN
+          - --no-ntp
+          - "--ds-password={{ ipa_ds_password }}"
+          - "--admin-password={{ ipa_admin_password }}"
+        creates: /etc/ipa/default.conf
+      no_log: true
+
+    - name: Проверить состояние firewalld
+      ansible.builtin.service_facts:
+
+    - name: Разрешить протоколы FreeIPA, если firewalld уже запущен
+      when: ansible_facts.services.get('firewalld.service', {}).get('state') == 'running'
+      block:
+        - name: Проверить правило FreeIPA
+          ansible.builtin.command: firewall-cmd --permanent --query-service=freeipa-4
+          register: ipa_firewall
+          changed_when: false
+          failed_when: ipa_firewall.rc not in [0, 1]
+
+        - name: Добавить правило FreeIPA
+          ansible.builtin.command: firewall-cmd --permanent --add-service=freeipa-4
+          when: ipa_firewall.rc == 1
+
+        - name: Перечитать правила
+          ansible.builtin.command: firewall-cmd --reload
+          when: ipa_firewall.rc == 1
+
+    - name: Проверить службы FreeIPA
+      ansible.builtin.command: ipactl status
+      changed_when: false
+
+# Версия 2 | 2026-11-21 | Развёртывание и проверка сервера FreeIPA.

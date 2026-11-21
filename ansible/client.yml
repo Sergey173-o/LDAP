@@ -1,0 +1,64 @@
+---
+# Вводит клиент CentOS Stream 9 в домен FreeIPA и включает создание home.
+- name: Подключить клиент FreeIPA
+  hosts: all
+  become: true
+  vars:
+    ipa_admin_password: "{{ lookup('ansible.builtin.env', 'IPA_ADMIN_PASSWORD') }}"
+  tasks:
+    - name: Подготовить сеть и время
+      ansible.builtin.import_tasks: common.yml
+
+    - name: Установить клиент FreeIPA и LDAP-утилиты
+      ansible.builtin.dnf:
+        name:
+          - ipa-client
+          - oddjob-mkhomedir
+          - openldap-clients
+        state: present
+
+    - name: Проверить состояние подключения к домену
+      ansible.builtin.stat:
+        path: /etc/ipa/default.conf
+      register: ipa_client_config
+
+    - name: Дождаться HTTPS FreeIPA
+      ansible.builtin.wait_for:
+        host: ipa.otus.lan
+        port: 443
+        timeout: 900
+
+    - name: Проверить пароль администратора для первого подключения
+      ansible.builtin.assert:
+        that: ipa_admin_password | length >= 8
+      no_log: true
+      when: not ipa_client_config.stat.exists
+
+    - name: Подключить ВМ к домену и включить создание домашних каталогов
+      ansible.builtin.command:
+        argv:
+          - ipa-client-install
+          - --unattended
+          - "--hostname={{ ipa_node_fqdn }}"
+          - --server=ipa.otus.lan
+          - --domain=otus.lan
+          - --realm=OTUS.LAN
+          - --fixed-primary
+          - --no-ntp
+          - --mkhomedir
+          - --principal=admin
+          - "--password={{ ipa_admin_password }}"
+        creates: /etc/ipa/default.conf
+      no_log: true
+
+    - name: Запустить службу создания домашних каталогов
+      ansible.builtin.systemd:
+        name: oddjobd
+        enabled: true
+        state: started
+
+    - name: Проверить службу SSSD
+      ansible.builtin.command: systemctl is-active sssd
+      changed_when: false
+
+# Версия 2 | 2026-11-21 | Регистрация клиентов и проверка SSSD.
